@@ -1,0 +1,123 @@
+---
+title: "NLP - Exploratory Data Analysis"
+author: "Tae Park"
+date: "17/02/2021"
+output: html_document
+---
+
+## Introduction
+The goal of this project is just to explain the major features of the data that I have identified and briefly summarize my plans for creating the prediction algorithm and Shiny app. The data files can be found in the data folder.
+
+### Packages and files
+These are the R packages used for the project. The txt files can be downloadable in the 'data' folder.
+```{r setup, warning=FALSE}
+# Packages
+library(tm)
+library(tidytext)
+library(ggplot2)
+library(stringi)
+library(RWeka)
+
+# File name
+blog = 'en_US.blogs.txt'
+news = 'en_US.news.txt'
+twitter = 'en_US.twitter.txt'
+
+```
+
+## Sampling and summaries
+In order to help the users who have a computer with a low memomery, I have sampled the texts from the files. The sample files are stored in the 'sample' folders for the analysis. The 'getSample' function returns the basic summary of each file. From the summaries of each file, I conclude sampling will helps to analyse the data much quicker.
+```{r warning=FALSE, echo=TRUE}
+getSample = function(filename) {
+  base = readLines(filename)
+  r = sample(base, length(base)*0.01, replace=F)
+  write.table(r, file=file.path('samples', paste('sample_', filename, sep="")), row.names = F)
+  return(stri_stats_general(base))
+}
+
+blog_info = getSample(blog)
+news_info = getSample(news)
+twitter_info = getSample(twitter)
+```
+
+1. Blog summary
+```{r}
+blog_info
+```
+
+2. News summary
+```{r}
+news_info
+```
+
+3. Twitter summary
+```{r}
+twitter_info
+```
+
+## Loading data
+Using the tm package, I could combine the sample data to create a corpus dataset. Also, I have manipulated the data to remove the irrelevant texts and to uniform the text format for analysis.
+```{r echo=TRUE}
+cleanFile = function(path, txt) {
+  dt = VCorpus(DirSource(path, encoding = 'UTF-8'), readerControl = list(reader = readPlain))
+  
+  # Basic cleaning
+  dt <- tm_map(dt, removePunctuation)  
+  dt <- tm_map(dt, removeNumbers)     
+  dt <- tm_map(dt, tolower)     
+  dt <- tm_map(dt, removeWords, stopwords("english"))  
+  dt <- tm_map(dt, stripWhitespace)   
+  dt <- tm_map(dt, PlainTextDocument)
+  
+  return(dt)
+}
+```
+```{r echo=FALSE}
+path = "/Users/taepark/Dropbox/R/capstone project/data/samples"
+corpus = cleanFile(path)
+corpus
+```
+
+## Plots
+I have created plots to show the features of the combined data. The plot shows some words that are used more frequently than the others. They are helful to predict words, identifying the words frequently next to each others. The 'getPlot' function uses the 'ggplot' package to display the 6 most frequently used words, or the comibination of words.
+
+```{r echo=TRUE}
+getPlot = function(dtm, n=6) {
+  mat = as.matrix(dtm)
+  if (nrow(mat) > ncol(mat)) {
+    freq = rowSums(mat)
+  } else {
+    freq = colSums(mat)
+  }
+  freq = sort(freq, decreasing=TRUE)
+  df = head(data.frame(word=names(freq), freq), n)
+  g = ggplot(df, aes(x=reorder(word, -freq), y=freq)) +
+    geom_col() +
+    xlab("Word") + 
+    ylab("Frequency") +
+    ggtitle("The frequency of words appearing") +
+    theme(axis.text.x = element_text(angle = 45))
+  
+  return(g)
+}
+```
+
+1. Unigram plot
+The graph shows the 6 most freqently used words. Those words are likely to be typed when a user writes a word.
+```{r echo=TRUE}
+dtm = DocumentTermMatrix(corpus)
+dtm = removeSparseTerms(dtm, 0.99)
+getPlot(dtm)
+```
+
+2. bigram plot
+The graph shows the 6 most frequently used combinations of two words. It helps to understand when a first letter is typed, the second letter is likely to be typed as well. The strategy is to predict a typing word when identifying the frequently used combination of words, and how many words used in the combindatino can be expandable.
+```{r echo=TRUE}
+BigramTokenizer = function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+bigram_dtm = TermDocumentMatrix(corpus, control = list(tokenize = BigramTokenizer))
+bigram_dtm = removeSparseTerms(bigram_dtm, 0.99)
+getPlot(bigram_dtm)
+```
+
+## Conclusion
+The strategy to predict the next words for a user typing is to identify the combination of words, especially using the combination of words frequently used. The combinations can be ranked by comparing the number of words used and that of frequency.
